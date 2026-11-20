@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cdfuc-toolkit"
+version = "26.11.20"
+description = "个人维护的 Python 通用工具集"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+archive = ["filetype"]
+text = ["cn2an", "pyperclip"]
+system = ["pyautogui", "pywin32; platform_system == 'Windows'"]
+tables = ["PyYAML", "pandas", "openpyxl"]
+browser = ["selenium", "webdriver-manager"]
+all = [
+    "filetype",
+    "cn2an",
+    "pyperclip",
+    "pyautogui",
+    "pywin32; platform_system == 'Windows'",
+    "PyYAML",
+    "pandas",
+    "openpyxl",
+    "selenium",
+    "webdriver-manager",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cdfuc*"]
+
+[tool.setuptools.package-data]
+cdfuc = ["bin/**/*"]

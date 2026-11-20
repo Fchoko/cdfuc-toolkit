@@ -1,0 +1,12 @@
+# Full dependency set for all optional cdfuc features.
+# For a smaller installation, install a selected extra from pyproject.toml.
+filetype
+cn2an
+pyperclip
+pyautogui
+pywin32; platform_system == "Windows"
+PyYAML
+pandas
+openpyxl
+selenium
+webdriver-manager
