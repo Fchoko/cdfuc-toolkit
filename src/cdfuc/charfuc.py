@@ -27,15 +27,7 @@ class BracketRes(NamedTuple):
     round: list[str]  # 小括号 () 中匹配到的内容
     square: list[str]  # 中括号 [] 中匹配到的内容
     curly: list[str]  # 大括号 {} 中匹配到的内容
-
-    @property
-    def all(self) -> list[str]:
-        """
-        按顺序汇总的所有括号内容。
-
-        :return: 包含小、中、大括号全部内容的合并列表
-        """
-        return self.round + self.square + self.curly
+    ordered: list[str]  # 按原字符串顺序排列
 
 
 # ============================== 核心门面与子模块 ==============================
@@ -258,44 +250,59 @@ class _Process(DelegatedBase[CharFuc]):
 
         def _replace_romaji(match: re.Match[str]) -> str:
             """
-            将匹配到的独立罗马音单词转换为中文基准数字字符。
+            将独立罗马音转换为中文数字字符，并记录其原始片段。
 
-            :param match: 正则匹配对象
-            :return: 中文数字字符
+            :param match: 罗马音匹配对象
+            :return: 对应的中文数字字符
             """
-            word = match.group(0).lower()
-            return cls._ROMAJI_NUMBER_MAP.get(word, match.group(0))
+            word = match.group(0)
+            convert = cls._ROMAJI_NUMBER_MAP[word.lower()]
 
+            romaji_sources[match.start()] = word  # 替换结果目前均为一个字符，因此可记录其在替换后文本中的位置
+            return convert
+
+        def _flush_number() -> None:
+            """
+            转换并记录当前累积的数字片段。
+
+            number_buffer 保存待转换内容，original_buffer 保存其原始文本。
+            """
+            if not number_buffer:
+                return
+
+            converted = cls._convert_number(number_buffer)
+            originals.append(original_buffer)
+            mappings[original_buffer] = converted
+            parts.append(converted)
+
+        romaji_sources: dict[int, str] = {}  # 记录替换后字符位置对应的罗马音原文
         processed_text = cls._ROMAJI_PATTERN.sub(_replace_romaji, text)  # 预先将独立罗马音规整为中文字符
 
         parts: list[str] = []
-        number_buffer = ""
         originals: list[str] = []
         mappings: dict[str, str] = {}
+        number_buffer = ""
+        original_buffer = ""
 
-        for ch in processed_text:
+        for index, ch in enumerate(processed_text):
             if (
                     ch.isdigit()
                     or ch in cls._CN_NUMBER_CHARS
                     or ch in cls._JP_NUMBER_MAP
-            ):  # 如果字符是数字（中文或日文），则累积（如字符串“十一”）
+            ):  # 如果字符是数字（中文或日文），则累积
                 number_buffer += ch
+                original_buffer += romaji_sources.get(index, ch)
+                continue
 
-            else:  # 遇到非数字字符，尝试记录、转化并初始化临时数字
-                if number_buffer:
-                    converted = cls._convert_number(number_buffer)
-                    originals.append(number_buffer)
-                    mappings[number_buffer] = converted
-                    parts.append(converted)
-                    number_buffer = ""
+            if number_buffer:  # 遇到非数字字符，先转换并记录已累积的数字
+                _flush_number()
+                number_buffer = ""
+                original_buffer = ""
 
-                parts.append(ch)  # 遇到非数字字符，且无临时数字时，将字符拼接至到结果中
+            parts.append(ch)  # 将非数字字符直接添加到结果中
 
-        if number_buffer:  # 处理末尾数字
-            converted = cls._convert_number(number_buffer)
-            originals.append(number_buffer)
-            mappings[number_buffer] = converted
-            parts.append(converted)
+        if number_buffer:  # 处理字符串末尾的数字片段
+            _flush_number()
 
         return ConvertRes(
             text="".join(parts),
@@ -316,10 +323,30 @@ class _Process(DelegatedBase[CharFuc]):
         if fullwidth:  # 替换全角括号为半角括号
             target_text = target_text.translate(str.maketrans("（）【】｛｝", "()[]{}"))
 
+        patterns = {
+            "round": cls._BRACKET_PATTERNS["round"],
+            "square": cls._BRACKET_PATTERNS["square"],
+            "curly": cls._BRACKET_PATTERNS["curly"],
+        }
+        matches = {
+            name: list(pattern.finditer(target_text))
+            for name, pattern in patterns.items()
+        }
+
+        ordered = sorted(
+            (
+                (match.start(), match.group(1))
+                for group in matches.values()
+                for match in group
+            ),
+            key=lambda item: item[0],
+        )
+
         return BracketRes(
-            round=cls._BRACKET_PATTERNS["round"].findall(target_text),
-            square=cls._BRACKET_PATTERNS["square"].findall(target_text),
-            curly=cls._BRACKET_PATTERNS["curly"].findall(target_text),
+            round=[match.group(1) for match in matches["round"]],
+            square=[match.group(1) for match in matches["square"]],
+            curly=[match.group(1) for match in matches["curly"]],
+            ordered=[content for _, content in ordered],
         )
 
     @staticmethod
