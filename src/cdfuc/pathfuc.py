@@ -291,12 +291,21 @@ class _File(DelegatedBase[PathFuc]):
             case _:
                 raise ValueError(f"Unsupported config format: {ext!r}")
 
-    def load_table(self, path: str | Path, drop_empty: bool = False) -> list[list[str | float]]:
+    def load_table(
+            self,
+            path: str | Path,
+            drop_empty: bool = False,
+            *,
+            sheet_name: str | int = 0,
+    ) -> list[list[str | float]]:
         """
-        加载二维表格文件。支持 csv、xls、xlsx、txt。
+        加载二维表格文件，支持 CSV、XLSX 和 TXT。
+
+        对 XLSX 文件可以按工作表名称或序号读取，默认读取第一个工作表；CSV 和 TXT 文件不使用 sheet_name 参数。
 
         :param path: 文件路径
         :param drop_empty: 是否剔除空行
+        :param sheet_name: Excel 工作表名称或序号，默认读取第一个工作表
         :return: 行列嵌套列表结构
         :raises ValueError: 当表格格式不受支持时抛出
         """
@@ -314,8 +323,8 @@ class _File(DelegatedBase[PathFuc]):
                 if drop_empty:  # 过滤掉全为空的行
                     rows = [r for r in rows if any(str(c).strip() for c in r)]
 
-            case "xls" | "xlsx":
-                df = pd.read_excel(p, header=None, dtype=str)
+            case "xlsx":
+                df = pd.read_excel(p, sheet_name=sheet_name, header=None, dtype=str)
                 df = df.fillna("")  # 统一缺失值为空字符串，防止行列维度错位
                 if drop_empty:  # 剔除全空行（按字符串去空格校验）
                     df = df[df.apply(lambda r: any(str(c).strip() for c in r), axis=1)]
@@ -406,13 +415,18 @@ class _File(DelegatedBase[PathFuc]):
             path: str | Path,
             data: Sequence[Sequence[str | int | float]],
             mode: Literal["w", "a"] = "a",
+            *,
+            sheet_name: str = "Sheet1",
     ) -> None:
         """
-        保存二维表格。
+        保存二维表格，支持 CSV、XLSX 和 TXT。
+
+        对 XLSX 文件，mode="w" 只替换指定工作表，mode="a" 追加到该工作表；工作簿中的其他工作表会保留。CSV 和 TXT 文件不使用 sheet_name 参数。
 
         :param path: 保存路径
         :param data: 二维数据
-        :param mode: 写入模式：'w' 覆盖；'a' 追加
+        :param mode: 写入模式：'w' 覆盖；'a' 追加；CSV、TXT 文件也支持其他格式
+        :param sheet_name: Excel 工作表名称，默认 "Sheet1"
         """
         if not data or not all(
                 isinstance(row, Sequence) and not isinstance(row, (str, bytes))
@@ -431,18 +445,27 @@ class _File(DelegatedBase[PathFuc]):
                 with open(p, mode=mode, newline="", encoding=encoding) as f:
                     csv.writer(f).writerows(data)
 
-            case "xls" | "xlsx":
+            case "xlsx":
+                if mode not in {"w", "a"}:
+                    raise ValueError(f"Unsupported Excel write mode: {mode!r}")
+
                 max_cols = max(len(row) for row in data)  # 补齐列数，保证 DataFrame 正常构造
                 rows = [list(row) + [None] * (max_cols - len(row)) for row in data]
                 df = pd.DataFrame(rows)
 
-                if mode == "a" and p.exists():
-                    old = pd.read_excel(p, header=None, engine="openpyxl")
-                    df = pd.concat([old, df], ignore_index=True)
-                elif mode != "w":
-                    raise ValueError(f"Unsupported mode: {mode!r}")
+                if p.exists():  # 现有工作簿用追加模式打开，再只替换或追加指定工作表
+                    writer = pd.ExcelWriter(
+                        p, engine="openpyxl", mode="a", if_sheet_exists="replace" if mode == "w" else "overlay",
+                    )
+                else:
+                    writer = pd.ExcelWriter(p, engine="openpyxl", mode="w")
 
-                df.to_excel(p, index=False, header=False, engine="openpyxl")
+                with writer:
+                    start_row = 0
+                    if mode == "a" and sheet_name in writer.book.sheetnames:  # 追加到指定工作表已有内容之后
+                        start_row = writer.book[sheet_name].max_row
+
+                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=start_row)
 
             case "txt":
                 with open(p, mode=mode, encoding=encoding) as f:
