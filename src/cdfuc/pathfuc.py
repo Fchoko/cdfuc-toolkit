@@ -6,7 +6,8 @@ import re
 import shutil
 import sqlite3
 from collections.abc import Callable, Sequence
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, cast
 
@@ -532,7 +533,26 @@ class _File(DelegatedBase[PathFuc]):
         """
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        return sqlite3.connect(p)
+
+        connection = sqlite3.connect(p)
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+    @classmethod
+    @contextmanager
+    def sqlite_transaction(cls, path: str | Path) -> Iterator[sqlite3.Connection]:
+        """
+        创建 SQLite 数据库连接并管理事务。
+
+        事务成功时自动提交，发生异常时自动回滚，
+        操作结束后自动关闭数据库连接。
+
+        :param path: 数据库文件路径
+        :yield: SQLite 数据库连接对象
+        """
+        with closing(cls.sqlite_connection(path)) as connection:
+            with connection:
+                yield connection
 
     @classmethod
     def load_sqlite(cls, path: str | Path, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
@@ -546,7 +566,7 @@ class _File(DelegatedBase[PathFuc]):
         :param params: SQL 参数
         :return: 查询结果，每行以列名为键
         """
-        with closing(cls.sqlite_connection(path)) as connection:
+        with cls.sqlite_transaction(path) as connection:
             connection.row_factory = sqlite3.Row
             cursor = connection.execute(sql, params)
             return [dict(row) for row in cursor.fetchall()]
@@ -563,33 +583,9 @@ class _File(DelegatedBase[PathFuc]):
         :param params: SQL 参数
         :return: 受影响的行数
         """
-        with closing(cls.sqlite_connection(path)) as connection:
-            try:
-                cursor = connection.execute(sql, params)
-                connection.commit()
-                return cursor.rowcount
-            except Exception:
-                connection.rollback()
-                raise
-
-    @classmethod
-    def execute_sqlite(cls, path: str | Path, sql: str, params: Sequence[Any] = ()) -> None:
-        """
-        执行建表或其他不需要返回查询结果的 SQL 语句。
-
-        执行失败时回滚事务，并在结束后关闭连接。
-
-        :param path: 数据库文件路径
-        :param sql: SQL 语句
-        :param params: SQL 参数
-        """
-        with closing(cls.sqlite_connection(path)) as connection:
-            try:
-                connection.execute(sql, params)
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                raise
+        with cls.sqlite_transaction(path) as connection:
+            cursor = connection.execute(sql, params)
+            return cursor.rowcount
 
 
 class _Folder(DelegatedBase[PathFuc]):
