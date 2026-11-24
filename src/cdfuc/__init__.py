@@ -1,6 +1,8 @@
 # 让所有类型注解延迟为“字符串形式”解析，而不是在定义时立刻求值
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 # 导入子模块，统一暴露给外部使用
 from .archfuc import ArchFuc
 from .basefuc import (
@@ -19,7 +21,13 @@ from .pathfuc import PathFuc
 from .sysfuc import SysFuc, log_runtime, subprocess_run
 from .timefuc import TimeFuc
 
+try:
+    __version__ = version("cdfuc-toolkit")
+except PackageNotFoundError:
+    __version__ = "26.00.00"
+
 __all__ = [
+    "__version__",
     "ArchFuc",
     "CharFuc",
     "ClassProxy",
@@ -37,5 +45,3 @@ __all__ = [
     "module",
     "subprocess_run",
 ]
-
-__version__: str = "26.11.20"  # 软件版本号

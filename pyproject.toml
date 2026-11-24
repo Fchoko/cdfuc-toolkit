@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cdfuc-toolkit"
-version = "26.11.20"
+version = "26.11.24"
 description = "个人维护的 Python 通用工具集"
 readme = "README.md"
 requires-python = ">=3.10"
