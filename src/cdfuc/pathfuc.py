@@ -4,7 +4,9 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 from collections.abc import Callable, Sequence
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, cast
 
@@ -517,6 +519,77 @@ class _File(DelegatedBase[PathFuc]):
         encoding = getattr(self._parent, "_encoding", "utf-8")
         with open(p, mode=mode, encoding=encoding) as f:
             f.write(text)
+
+    @staticmethod
+    def sqlite_connection(path: str | Path) -> sqlite3.Connection:
+        """
+        创建 SQLite 数据库连接。
+
+        调用方负责关闭连接。直接使用连接的 with 语句只管理事务，不会关闭连接；需要在操作结束后显式调用 connection.close()。
+
+        :param path: 数据库文件路径
+        :return: SQLite 数据库连接对象
+        """
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return sqlite3.connect(p)
+
+    @classmethod
+    def load_sqlite(cls, path: str | Path, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        """
+        执行查询语句，并以字典列表形式返回结果。
+
+        SQL 使用 ? 作为参数占位符，实际参数通过 params 单独传入。
+
+        :param path: 数据库文件路径
+        :param sql: SELECT 查询语句
+        :param params: SQL 参数
+        :return: 查询结果，每行以列名为键
+        """
+        with closing(cls.sqlite_connection(path)) as connection:
+            connection.row_factory = sqlite3.Row
+            cursor = connection.execute(sql, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    @classmethod
+    def save_sqlite(cls, path: str | Path, sql: str, params: Sequence[Any] = ()) -> int:
+        """
+        执行新增、修改或删除语句，并提交事务。
+
+        执行失败时回滚事务，并在结束后关闭连接。
+
+        :param path: 数据库文件路径
+        :param sql: INSERT、UPDATE 或 DELETE 语句
+        :param params: SQL 参数
+        :return: 受影响的行数
+        """
+        with closing(cls.sqlite_connection(path)) as connection:
+            try:
+                cursor = connection.execute(sql, params)
+                connection.commit()
+                return cursor.rowcount
+            except Exception:
+                connection.rollback()
+                raise
+
+    @classmethod
+    def execute_sqlite(cls, path: str | Path, sql: str, params: Sequence[Any] = ()) -> None:
+        """
+        执行建表或其他不需要返回查询结果的 SQL 语句。
+
+        执行失败时回滚事务，并在结束后关闭连接。
+
+        :param path: 数据库文件路径
+        :param sql: SQL 语句
+        :param params: SQL 参数
+        """
+        with closing(cls.sqlite_connection(path)) as connection:
+            try:
+                connection.execute(sql, params)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
 
 class _Folder(DelegatedBase[PathFuc]):
