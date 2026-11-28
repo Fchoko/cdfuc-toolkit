@@ -385,6 +385,19 @@ class _Process(DelegatedBase[CharFuc]):
         return sorted(items, key=lambda x: (not pattern.match(x), x))
 
     @staticmethod
+    def sort_number(value: str) -> tuple[tuple[int, int | str], ...]:
+        """
+        按文件名中的数字片段生成自然排序键。
+
+        :param value: 待排序的文件名字符串
+        :return: 数字与大小写不敏感文本混合的排序元组
+        """
+        return tuple(
+            (0, int(part)) if part.isdigit() else (1, part.casefold())
+            for part in re.split(r"(\d+)", value)
+        )
+
+    @staticmethod
     def styled_print(
             text: str,
             style: Literal[1, 4, 7] | None = None,
